@@ -33,7 +33,10 @@ Tau can now:
 - read session files in order
 - reconstruct linear session state
 - reconstruct a root-to-leaf branch path
+- load a `tau_coding.CodingSession` that restores messages and persists new runs
 
 ## Boundary
 
 Low-level session primitives belong in `tau_agent`. File locations, slash commands, and coding-agent workflows belong in `tau_coding`.
+
+`CodingSession` is the first `tau_coding` layer on top of the low-level primitives. It wires storage, `AgentHarness`, cwd, and coding tools together while leaving richer commands and resource loading for later phases.

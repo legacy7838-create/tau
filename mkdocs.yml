@@ -66,5 +66,6 @@ nav:
       - "Phase 5: Built-in Coding Tools": architecture/phase-5-coding-tools.md
       - "Phase 6: Non-interactive Print-mode CLI": architecture/phase-6-print-mode-cli.md
       - "Phase 7: Session Tree and JSONL Persistence": architecture/phase-7-session-tree.md
+      - "Phase 8: Coding Session Wrapper": architecture/phase-8-coding-session.md
   - ADRs:
       - Use Textual for TUI: adr/0001-use-textual-for-tui.md
