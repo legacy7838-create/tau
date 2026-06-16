@@ -8,6 +8,7 @@ from tau_coding import (
     create_edit_tool,
     create_edit_tool_definition,
     create_read_tool,
+    create_read_tool_definition,
     create_write_tool,
 )
 
@@ -27,6 +28,15 @@ def test_tool_definitions_expose_pi_style_prompt_metadata(tmp_path: Path) -> Non
 
     assert definition.prompt_snippet.startswith("Make precise file edits")
     assert len(definition.prompt_guidelines) == 4
+
+
+def test_read_tool_schema_defines_line_controls_as_integers(tmp_path: Path) -> None:
+    definition = create_read_tool_definition(cwd=tmp_path)
+    properties = definition.input_schema["properties"]
+
+    assert isinstance(properties, dict)
+    assert properties["offset"]["type"] == "integer"
+    assert properties["limit"]["type"] == "integer"
 
 
 @pytest.mark.anyio

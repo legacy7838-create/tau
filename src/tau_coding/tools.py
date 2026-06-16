@@ -193,8 +193,8 @@ def create_read_tool_definition(*, cwd: str | Path | None = None) -> ToolDefinit
             "type": "object",
             "properties": {
                 "path": {"type": "string", "description": "Path to the file to read"},
-                "offset": {"type": "number", "description": "Line number to start reading from"},
-                "limit": {"type": "number", "description": "Maximum number of lines to read"},
+                "offset": {"type": "integer", "description": "Line number to start reading from"},
+                "limit": {"type": "integer", "description": "Maximum number of lines to read"},
             },
             "required": ["path"],
         },
