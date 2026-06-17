@@ -28,5 +28,6 @@ The most important boundary is that `tau_agent` should stay portable. It can def
 - [Phase 6: Non-interactive Print-mode CLI](phase-6-print-mode-cli.md)
 - [Phase 7: Session Tree and JSONL Persistence](phase-7-session-tree.md)
 - [Phase 8: Coding Session Wrapper](phase-8-coding-session.md)
+- [Phase 9: Skills and Prompt Templates](phase-9-skills-prompts.md)
 
 More pages will be added here as each phase lands.
