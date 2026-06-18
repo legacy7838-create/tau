@@ -807,6 +807,16 @@ class TauTuiApp(App[None]):
         border: tall $tau-border;
     }
 
+    ListView > ListItem.--highlight {
+        background: $tau-highlight-background;
+        color: $tau-highlight-text;
+    }
+
+    ListView > ListItem.--highlight Label {
+        background: $tau-highlight-background;
+        color: $tau-highlight-text;
+    }
+
     #session-picker-help {
         height: 1;
         margin-top: 1;
@@ -1531,6 +1541,9 @@ def _theme_css_variables(theme: TuiTheme) -> dict[str, str]:
         "tau-prompt-text": theme.prompt_text,
         "tau-prompt-border": theme.prompt_border,
         "tau-autocomplete-background": theme.autocomplete_background,
+        "tau-accent": theme.accent,
+        "tau-highlight-background": theme.highlight_background,
+        "tau-highlight-text": theme.highlight_text,
     }
 
 

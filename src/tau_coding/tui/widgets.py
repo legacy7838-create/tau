@@ -7,13 +7,15 @@ from typing import Any, Protocol
 
 from rich import box
 from rich.align import Align
-from rich.console import Group, RenderableType
+from rich.console import Console, Group, RenderableType
 from rich.markdown import Markdown
 from rich.padding import Padding
 from rich.panel import Panel
 from rich.syntax import Syntax
 from rich.table import Table
+from rich.style import Style
 from rich.text import Text
+from rich.theme import Theme
 from textual.events import Resize
 from textual.widgets import RichLog, Static
 
@@ -262,6 +264,7 @@ def render_chat_item(
             role=item.role,
             body_style=role_style.body,
             syntax_theme=theme.syntax_theme,
+            theme=theme,
         )
     )
     table = Table.grid(expand=True)
@@ -340,6 +343,7 @@ def _render_chat_body(
     role: str,
     body_style: str,
     syntax_theme: str,
+    theme: TuiTheme,
 ) -> RenderableType:
     patch_body = _render_patch_body(
         text,
@@ -351,11 +355,12 @@ def _render_chat_body(
     if role == "assistant":
         if _has_unclosed_fence(text):
             return _plain_text(text, body_style=body_style)
-        return Markdown(
+        return ThemedMarkdown(
             text,
             style=body_style,
             code_theme=syntax_theme,
             inline_code_theme=syntax_theme,
+            heading_style=theme.accent,
         )
     fenced_body = _render_fenced_body(
         text,
@@ -390,6 +395,48 @@ def _render_patch_body(
             word_wrap=True,
             background_color="default",
         ),
+    )
+
+
+class ThemedMarkdown(Markdown):
+    """Markdown renderer with Tau's softer heading/accent colors."""
+
+    def __init__(
+        self,
+        markup: str,
+        *,
+        heading_style: str,
+        code_theme: str,
+        inline_code_theme: str,
+        style: str = "none",
+    ) -> None:
+        super().__init__(
+            markup,
+            style=style,
+            code_theme=code_theme,
+            inline_code_theme=inline_code_theme,
+        )
+        self.heading_style = heading_style
+
+    def __rich_console__(self, console: Console, options: Any) -> Any:
+        with console.use_theme(_markdown_theme(self.heading_style)):
+            yield from super().__rich_console__(console, options)
+
+
+def _markdown_theme(heading_style: str) -> Theme:
+    accent = Style.parse(heading_style)
+    return Theme(
+        {
+            "markdown.h1": accent + Style(bold=True, underline=True),
+            "markdown.h2": accent + Style(bold=True),
+            "markdown.h3": accent + Style(bold=True),
+            "markdown.h4": accent + Style(bold=True),
+            "markdown.h5": accent + Style(bold=True),
+            "markdown.h6": accent + Style(bold=True),
+            "markdown.item.bullet": accent,
+            "markdown.item.number": accent,
+            "markdown.block_quote": accent,
+        }
     )
 
 

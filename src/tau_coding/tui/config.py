@@ -69,6 +69,9 @@ class TuiTheme:
     prompt_text: str
     prompt_border: str
     autocomplete_background: str
+    accent: str
+    highlight_background: str
+    highlight_text: str
     completion_selected: str
     completion_selected_description: str
     completion_description: str
@@ -90,8 +93,11 @@ TAU_DARK_THEME = TuiTheme(
     prompt_text="#e5e7eb",
     prompt_border="#2d3748",
     autocomplete_background="#000000",
-    completion_selected="bold #f8fafc on #21324a",
-    completion_selected_description="#cbd5e1 on #21324a",
+    accent="#f4a261",
+    highlight_background="#a7f3f0",
+    highlight_text="#061a1a",
+    completion_selected="bold #061a1a on #a7f3f0",
+    completion_selected_description="#123333 on #a7f3f0",
     completion_description="#667085",
     syntax_theme="ansi_dark",
     role_styles={
@@ -118,8 +124,11 @@ HIGH_CONTRAST_THEME = TuiTheme(
     prompt_text="#ffffff",
     prompt_border="#00ff66",
     autocomplete_background="#111111",
-    completion_selected="bold black on #00ff66",
-    completion_selected_description="black on #00ff66",
+    accent="#ffb454",
+    highlight_background="#7fffd4",
+    highlight_text="#000000",
+    completion_selected="bold black on #7fffd4",
+    completion_selected_description="black on #7fffd4",
     completion_description="white",
     syntax_theme="ansi_dark",
     role_styles={
