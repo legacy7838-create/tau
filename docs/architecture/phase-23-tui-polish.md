@@ -116,7 +116,10 @@ worker visible while the provider or tool observes the cancellation token. The
 second press interrupts the current Textual worker immediately. This mirrors
 Pi's cancellation boundary: UI code requests cancellation, the portable agent
 loop carries a cancellation token, and long-running tools such as `bash` honor
-that token without making Textual a dependency of `tau_agent`.
+that token without making Textual a dependency of `tau_agent`. Because
+cancellation is an intentional user action, the built-in TUI renders the final
+cancellation event as status text instead of adding an error row to the
+transcript.
 
 Assistant code block rendering is now more defensive. Known fence languages use
 Rich/Pygments syntax highlighting, while unknown or custom fence labels fall
