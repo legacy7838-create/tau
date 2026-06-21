@@ -27,6 +27,7 @@ from tau_agent import (
 from tau_coding.commands import CommandResult
 from tau_coding.credentials import OAuthCredential
 from tau_coding.provider_config import OpenAICompatibleProviderConfig, ProviderSettings
+from tau_coding.rendering import ToolOutputVisibility
 from tau_coding.session import ModelChoice, SessionTreeChoice, TerminalCommandResult
 from tau_coding.session_manager import CodingSessionRecord
 from tau_coding.skills import Skill, format_skill_invocation
@@ -739,12 +740,15 @@ async def test_tui_app_highlights_prompt_shell_mode() -> None:
         await pilot.pause()
 
         assert prompt.has_class("-shell-mode")
-        assert _activity_prompt_border_color(
-            app.tui_settings.resolved_theme,
-            frame=0,
-            running=False,
-            shell_mode=prompt.has_class("-shell-mode"),
-        ) == app.tui_settings.resolved_theme.accent
+        assert (
+            _activity_prompt_border_color(
+                app.tui_settings.resolved_theme,
+                frame=0,
+                running=False,
+                shell_mode=prompt.has_class("-shell-mode"),
+            )
+            == app.tui_settings.resolved_theme.accent
+        )
         assert prompt.get_line(0).spans[-1].start == 0
         assert prompt.get_line(0).spans[-1].end == 2
         assert str(prompt.get_line(0).spans[-1].style) == app.tui_settings.resolved_theme.accent
@@ -1016,7 +1020,8 @@ def test_tui_app_loads_restored_messages_into_display_state() -> None:
             "✓ edit\n"
             "Successfully replaced 1 block.\n"
             "\n"
-            "Patch:\n"
+            "File: README.md\n"
+            "Diff:\n"
             "--- README.md\n"
             "+++ README.md\n"
             "@@\n"
@@ -2228,15 +2233,22 @@ async def test_tui_app_toggles_tool_results_from_keybinding() -> None:
     app._notify = fake_notify  # type: ignore[method-assign]
 
     async with app.run_test() as pilot:
-        assert app.state.show_tool_results is False
+        assert app.state.tool_output_visibility is ToolOutputVisibility.short
         await pilot.press("ctrl+o")
         await pilot.pause()
-        assert app.state.show_tool_results is True
+        assert app.state.tool_output_visibility is ToolOutputVisibility.full
+        await pilot.press("ctrl+o")
+        await pilot.pause()
+        assert app.state.tool_output_visibility is ToolOutputVisibility.none
         await pilot.press("ctrl+o")
         await pilot.pause()
 
-    assert app.state.show_tool_results is False
-    assert notifications == ["Tool results expanded.", "Tool results collapsed."]
+    assert app.state.tool_output_visibility is ToolOutputVisibility.short
+    assert notifications == [
+        "Tool output: full.",
+        "Tool output: none.",
+        "Tool output: short.",
+    ]
 
 
 @pytest.mark.anyio

@@ -7,13 +7,14 @@ from typing import Literal
 from tau_agent.messages import AgentMessage
 from tau_agent.tools import AgentToolResult, ToolCall
 from tau_agent.types import JSONValue
+from tau_coding.rendering.tool_output import (
+    ToolOutputVisibility,
+    format_tool_result_block,
+    format_tool_result_summary,
+)
 from tau_coding.skills import parse_skill_invocation
 
 ChatItemRole = Literal["user", "assistant", "tool", "error", "status", "thinking", "skill"]
-TOOL_RESULT_PREVIEW_LINES = 8
-TOOL_PATCH_PREVIEW_LINES = 32
-TOOL_RESULT_PREVIEW_CHARS = 2_000
-TERMINAL_COMMAND_OUTPUT_PREVIEW_LINES = 120
 
 
 @dataclass(slots=True)
@@ -23,7 +24,9 @@ class ChatItem:
     role: ChatItemRole
     text: str
     tool_call_id: str | None = None
+    tool_call: ToolCall | None = None
     tool_result_text: str | None = None
+    tool_result: AgentToolResult | None = None
     always_show_tool_result: bool = False
 
 
@@ -35,7 +38,7 @@ class TuiState:
     assistant_buffer: str = ""
     running: bool = False
     error: str | None = None
-    show_tool_results: bool = False
+    tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short
     show_thinking: bool = False
     queued_steering: tuple[str, ...] = ()
     queued_follow_up: tuple[str, ...] = ()
@@ -46,7 +49,9 @@ class TuiState:
         text: str,
         *,
         tool_call_id: str | None = None,
+        tool_call: ToolCall | None = None,
         tool_result_text: str | None = None,
+        tool_result: AgentToolResult | None = None,
         always_show_tool_result: bool = False,
     ) -> None:
         """Append a transcript item."""
@@ -55,7 +60,9 @@ class TuiState:
                 role=role,
                 text=text,
                 tool_call_id=tool_call_id,
+                tool_call=tool_call,
                 tool_result_text=tool_result_text,
+                tool_result=tool_result,
                 always_show_tool_result=always_show_tool_result,
             )
         )
@@ -66,6 +73,7 @@ class TuiState:
             "tool",
             format_tool_call_block(tool_call),
             tool_call_id=tool_call.id,
+            tool_call=tool_call,
         )
 
     def add_user_message(self, content: str) -> None:
@@ -87,26 +95,67 @@ class TuiState:
 
     def record_tool_result(self, result: AgentToolResult) -> None:
         """Attach a tool result to its matching call, or append an orphan result."""
+        for item in reversed(self.items):
+            if item.role == "tool" and item.tool_call_id == result.tool_call_id:
+                result = _result_with_tool_call_context(result, item.tool_call)
+                result_text = format_tool_result_block(
+                    name=result.name,
+                    ok=result.ok,
+                    content=result.content,
+                    data=result.data,
+                    visibility=self.tool_output_visibility,
+                )
+                item.tool_result_text = result_text
+                item.tool_result = result
+                return
         result_text = format_tool_result_block(
             name=result.name,
             ok=result.ok,
             content=result.content,
             data=result.data,
+            visibility=self.tool_output_visibility,
         )
-        for item in reversed(self.items):
-            if item.role == "tool" and item.tool_call_id == result.tool_call_id:
-                item.tool_result_text = result_text
-                return
         self.add_item(
             "tool",
             format_tool_result_summary(name=result.name, ok=result.ok),
             tool_call_id=result.tool_call_id,
             tool_result_text=result_text,
+            tool_result=result,
         )
+
+    @property
+    def show_tool_results(self) -> bool:
+        """Return whether any tool result detail is visible."""
+        return self.tool_output_visibility is not ToolOutputVisibility.none
+
+    @show_tool_results.setter
+    def show_tool_results(self, value: bool) -> None:
+        """Compatibility setter for the old collapsed/expanded boolean state."""
+        self.set_tool_output_visibility(
+            ToolOutputVisibility.short if value else ToolOutputVisibility.none
+        )
+
+    def set_tool_output_visibility(self, visibility: ToolOutputVisibility) -> None:
+        """Set tool-output visibility and refresh cached result text."""
+        self.tool_output_visibility = visibility
+        self._refresh_tool_result_text()
+
+    def cycle_tool_output_visibility(self) -> ToolOutputVisibility:
+        """Cycle visible tool output through short, full, and none."""
+        order = (
+            ToolOutputVisibility.short,
+            ToolOutputVisibility.full,
+            ToolOutputVisibility.none,
+        )
+        next_index = (order.index(self.tool_output_visibility) + 1) % len(order)
+        self.set_tool_output_visibility(order[next_index])
+        return self.tool_output_visibility
 
     def toggle_tool_results(self) -> bool:
         """Toggle expanded display for tool results and return the new state."""
-        self.show_tool_results = not self.show_tool_results
+        self.set_tool_output_visibility(
+            ToolOutputVisibility.none if self.show_tool_results else ToolOutputVisibility.short
+        )
         return self.show_tool_results
 
     def toggle_thinking(self) -> bool:
@@ -129,6 +178,18 @@ class TuiState:
         self.items.clear()
         self.assistant_buffer = ""
         self.error = None
+
+    def _refresh_tool_result_text(self) -> None:
+        for item in self.items:
+            if item.tool_result is None:
+                continue
+            item.tool_result_text = format_tool_result_block(
+                name=item.tool_result.name,
+                ok=item.tool_result.ok,
+                content=item.tool_result.content,
+                data=item.tool_result.data,
+                visibility=self.tool_output_visibility,
+            )
 
     def load_messages(self, messages: Iterable[AgentMessage]) -> None:
         """Populate the transcript from restored session messages."""
@@ -226,75 +287,17 @@ def _number_argument(arguments: dict[str, JSONValue], key: str) -> int | float |
     return value if isinstance(value, int | float) else None
 
 
-def format_tool_result_summary(*, name: str, ok: bool) -> str:
-    """Format a terse tool result line for orphaned results."""
-    status = "✓" if ok else "✗"
-    return f"{status} {name}"
-
-
-def format_tool_result_block(
-    *,
-    name: str,
-    ok: bool,
-    content: str,
-    data: dict[str, JSONValue] | None = None,
-) -> str:
-    """Format a tool result for live and restored transcript blocks."""
-    status = "✓" if ok else "✗"
-    lines = [f"{status} {name}"]
-    if content:
-        lines.append(_preview_text(content, max_lines=TOOL_RESULT_PREVIEW_LINES))
-    patch = _result_patch(name=name, ok=ok, data=data)
-    if patch:
-        lines.extend(["", "Patch:", _preview_text(patch, max_lines=TOOL_PATCH_PREVIEW_LINES)])
-    return "\n".join(lines)
-
-
-def format_terminal_command_result_block(
-    *,
-    ok: bool,
-    added_to_context: bool,
-    output: str,
-) -> str:
-    """Format an input-bar terminal command result for visible TUI display."""
-    status = "✓" if ok else "✗"
-    suffix = " · added to context" if added_to_context else " · not added to context"
-    lines = [f"{status} bash{suffix}"]
-    if output:
-        lines.append(_preview_text(output, max_lines=TERMINAL_COMMAND_OUTPUT_PREVIEW_LINES))
-    return "\n".join(lines)
-
-
-def _result_patch(
-    *,
-    name: str,
-    ok: bool,
-    data: dict[str, JSONValue] | None,
-) -> str | None:
-    if name != "edit" or not ok or data is None:
-        return None
-    patch = data.get("patch")
-    return patch if isinstance(patch, str) and patch.strip() else None
-
-
-def _preview_text(text: str, *, max_lines: int) -> str:
-    lines = text.splitlines()
-    if not lines:
-        return text[:TOOL_RESULT_PREVIEW_CHARS]
-
-    preview_lines = lines[:max_lines]
-    preview = "\n".join(preview_lines)
-    hidden_lines = max(0, len(lines) - len(preview_lines))
-
-    truncated_by_chars = len(preview) > TOOL_RESULT_PREVIEW_CHARS
-    if truncated_by_chars:
-        preview = preview[:TOOL_RESULT_PREVIEW_CHARS].rstrip()
-
-    if hidden_lines or truncated_by_chars:
-        details: list[str] = []
-        if hidden_lines:
-            details.append(f"{hidden_lines} more line{'s' if hidden_lines != 1 else ''}")
-        if truncated_by_chars:
-            details.append("additional text")
-        preview = f"{preview}\n\n[Preview only: {', '.join(details)} hidden from the TUI.]"
-    return preview
+def _result_with_tool_call_context(
+    result: AgentToolResult,
+    tool_call: ToolCall | None,
+) -> AgentToolResult:
+    if result.name != "edit" or tool_call is None:
+        return result
+    path = _string_argument(tool_call.arguments, "path")
+    if path is None:
+        return result
+    data = dict(result.data or {})
+    if isinstance(data.get("path"), str):
+        return result
+    data["path"] = path
+    return result.model_copy(update={"data": data})

@@ -31,7 +31,7 @@ from tau_coding.provider_config import (
     upsert_openai_compatible_provider,
 )
 from tau_coding.provider_runtime import create_model_provider
-from tau_coding.rendering import PrintOutputMode, create_event_renderer
+from tau_coding.rendering import PrintOutputMode, ToolOutputVisibility, create_event_renderer
 from tau_coding.resources import TauResourcePaths
 from tau_coding.session import (
     CodingSession,
@@ -149,6 +149,13 @@ def main(
         PrintOutputMode,
         typer.Option("--output", "-o", help="Output mode for print mode."),
     ] = PrintOutputMode.text,
+    tool_output: Annotated[
+        ToolOutputVisibility | None,
+        typer.Option(
+            "--tool-output",
+            help="Tool result detail for transcript/TUI output: none, short, or full.",
+        ),
+    ] = None,
     resume: Annotated[
         str | None,
         typer.Option("--resume", help="Resume a session id in TUI mode."),
@@ -230,6 +237,7 @@ def main(
                 provider,
                 auto_compact_threshold,
                 initial_prompt,
+                tool_output,
             )
         except RuntimeError as exc:
             raise typer.BadParameter(str(exc)) from exc
@@ -240,7 +248,15 @@ def main(
         raise AssertionError("prompt option should be set outside TUI mode")
 
     try:
-        ok = anyio.run(run_openai_print_mode, prompt, model, cwd or Path.cwd(), output, provider)
+        ok = anyio.run(
+            run_openai_print_mode,
+            prompt,
+            model,
+            cwd or Path.cwd(),
+            output,
+            provider,
+            tool_output or ToolOutputVisibility.short,
+        )
     except RuntimeError as exc:
         raise typer.BadParameter(str(exc)) from exc
     if not ok:
@@ -255,6 +271,7 @@ async def run_openai_tui(
     provider_name: str | None = None,
     auto_compact_token_threshold: int | None = None,
     initial_prompt: str | None = None,
+    tool_output_visibility: ToolOutputVisibility | None = None,
 ) -> None:
     """Run the Textual TUI with the default OpenAI-compatible provider."""
     await run_tui_app(
@@ -265,6 +282,7 @@ async def run_openai_tui(
         provider_name=provider_name,
         auto_compact_token_threshold=auto_compact_token_threshold,
         initial_prompt=initial_prompt,
+        tool_output_visibility=tool_output_visibility,
     )
 
 
@@ -417,6 +435,7 @@ async def run_openai_print_mode(
     cwd: Path,
     output: PrintOutputMode = PrintOutputMode.text,
     provider_name: str | None = None,
+    tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short,
     session_manager: SessionManager | None = None,
 ) -> bool:
     """Run print mode with the OpenAI-compatible provider configured from the environment."""
@@ -436,6 +455,7 @@ async def run_openai_print_mode(
             cwd=record.cwd,
             provider=provider,
             output=output,
+            tool_output_visibility=tool_output_visibility,
             storage=jsonl_session_storage(record.path),
             session_id=record.id,
             session_manager=manager,
@@ -454,6 +474,7 @@ async def run_print_mode(
     cwd: Path,
     provider: ModelProvider,
     output: PrintOutputMode = PrintOutputMode.text,
+    tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short,
     resource_paths: TauResourcePaths | None = None,
     storage: SessionStorage | None = None,
     session_id: str | None = None,
@@ -481,7 +502,7 @@ async def run_print_mode(
             runtime_provider_config=runtime_provider_config,
         )
     )
-    renderer = create_event_renderer(output)
+    renderer = create_event_renderer(output, tool_output_visibility=tool_output_visibility)
     try:
         terminal_command = parse_terminal_command(prompt)
         if terminal_command is not None:

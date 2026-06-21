@@ -18,6 +18,58 @@ from tau_agent import (
     ToolExecutionUpdateEvent,
 )
 from tau_coding.rendering import FinalTextRenderer, JsonEventRenderer, TranscriptRenderer
+from tau_coding.rendering.tool_output import ToolOutputVisibility, format_tool_result_block
+
+
+def test_tool_result_block_supports_visibility_levels() -> None:
+    content = "\n".join(f"line {index}" for index in range(1, 12))
+
+    none = format_tool_result_block(
+        name="read",
+        ok=True,
+        content=content,
+        visibility=ToolOutputVisibility.none,
+    )
+    short = format_tool_result_block(
+        name="read",
+        ok=True,
+        content=content,
+        visibility=ToolOutputVisibility.short,
+    )
+    full = format_tool_result_block(
+        name="read",
+        ok=True,
+        content=content,
+        visibility=ToolOutputVisibility.full,
+    )
+
+    assert none == "✓ read"
+    assert "line 1" in short
+    assert "line 8" in short
+    assert "line 9" not in short
+    assert "3 more lines" in short
+    assert "line 11" in full
+    assert "Preview only" not in full
+
+
+def test_tool_result_block_formats_edit_diff_preview() -> None:
+    patch = "\n".join(["--- a.py", "+++ a.py", "@@"] + [f"+line {index}" for index in range(40)])
+
+    block = format_tool_result_block(
+        name="edit",
+        ok=True,
+        content="Successfully replaced 1 block.",
+        data={"path": "a.py", "patch": patch},
+        visibility=ToolOutputVisibility.short,
+    )
+
+    assert "Successfully replaced 1 block." in block
+    assert "File: a.py" in block
+    assert "Diff:" in block
+    assert "--- a.py" in block
+    assert "+line 28" in block
+    assert "+line 32" not in block
+    assert "Preview only" in block
 
 
 def test_transcript_renderer_streams_text_and_tool_events(
@@ -71,6 +123,27 @@ def test_transcript_renderer_fails_on_non_recoverable_error(
     captured = capsys.readouterr()
     assert renderer.finish() is False
     assert "Error: provider failed" in captured.err
+
+
+def test_transcript_renderer_respects_tool_output_visibility(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    renderer = TranscriptRenderer(tool_output_visibility=ToolOutputVisibility.none)
+
+    renderer.render(
+        ToolExecutionEndEvent(
+            result=AgentToolResult(
+                tool_call_id="call-1",
+                name="read",
+                ok=True,
+                content="hidden content",
+            )
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert "✓ read" in captured.err
+    assert "hidden content" not in captured.err
 
 
 def test_final_text_renderer_prints_only_final_message(

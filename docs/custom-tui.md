@@ -232,6 +232,11 @@ settings from `~/.tau/tui.json` through `tau_coding.tui.load_tui_settings()`,
 but a custom TUI can ignore that file or map the same action names to its own
 input and styling system.
 
+Tool-output visibility is also frontend policy. The built-in app supports
+`none`, `short`, and `full`; `short` uses the shared preview formatter in
+`tau_coding.rendering` so print mode and TUI previews follow the same truncation
+rules without adding UI concepts to `tau_agent`.
+
 The built-in configurable action names are:
 
 - `cancel`

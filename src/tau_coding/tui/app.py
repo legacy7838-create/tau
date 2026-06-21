@@ -50,6 +50,10 @@ from tau_coding.provider_config import (
     upsert_provider,
 )
 from tau_coding.provider_runtime import create_model_provider
+from tau_coding.rendering.tool_output import (
+    ToolOutputVisibility,
+    format_terminal_command_result_block,
+)
 from tau_coding.session import (
     CodingSession,
     CodingSessionConfig,
@@ -71,7 +75,7 @@ from tau_coding.tui.config import (
     load_tui_settings,
     save_tui_settings,
 )
-from tau_coding.tui.state import TuiState, format_terminal_command_result_block
+from tau_coding.tui.state import TuiState
 from tau_coding.tui.widgets import (
     CompactSessionInfo,
     SessionSidebar,
@@ -985,9 +989,7 @@ class ModelPickerScreen(ModalScreen[ModelChoice | None]):
         """Compose the model picker."""
         with Vertical(id="model-picker"):
             title = (
-                f"Model: {self.provider_name}"
-                if self.picker_kind == "model"
-                else "Scoped models"
+                f"Model: {self.provider_name}" if self.picker_kind == "model" else "Scoped models"
             )
             yield Static(title, id="model-picker-title")
             yield Static("", id="model-picker-tabs")
@@ -1149,7 +1151,10 @@ class ModelPickerScreen(ModalScreen[ModelChoice | None]):
             help_text = (
                 "all models: no matching models - Tab switches to scoped models"
                 if not self.visible_choices
-                else f"All models - Enter selects active model - Tab switches tabs - {scope_count} scoped"
+                else (
+                    "All models - Enter selects active model - "
+                    f"Tab switches tabs - {scope_count} scoped"
+                )
             )
         else:
             tabs.update("Tabs: ○ All models  ● Scoped models")
@@ -1648,7 +1653,7 @@ class TauTuiApp(App[None]):
         super().__init__()
         self._bindings = BindingsMap(_app_bindings(self.tui_settings.keybindings))
         self.session = session
-        self.state = TuiState()
+        self.state = TuiState(tool_output_visibility=self.tui_settings.tool_output_visibility)
         self.state.load_messages(session.messages)
         self.adapter = TuiEventAdapter(self.state)
         self._prompt_worker: Worker[None] | None = None
@@ -1845,6 +1850,7 @@ class TauTuiApp(App[None]):
         self.tui_settings = TuiSettings(
             keybindings=self.tui_settings.keybindings,
             theme=theme,
+            tool_output_visibility=self.tui_settings.tool_output_visibility,
         )
         save_tui_settings(self.tui_settings)
         self.refresh_css(animate=False)
@@ -1925,7 +1931,7 @@ class TauTuiApp(App[None]):
             | TreePickerScreen
             | LoginMethodPickerScreen
             | LoginProviderPickerScreen
-            | ThemePickerScreen
+            | ThemePickerScreen,
         ):
             self.screen.action_select_cursor()
             return
@@ -2042,10 +2048,10 @@ class TauTuiApp(App[None]):
         self.run_worker(self._cycle_scoped_model(), exclusive=False)
 
     def action_toggle_tool_results(self) -> None:
-        """Toggle inline tool result details in the transcript."""
-        expanded = self.state.toggle_tool_results()
+        """Cycle inline tool-result visibility in the transcript."""
+        visibility = self.state.cycle_tool_output_visibility()
         self._refresh()
-        self._notify("Tool results expanded." if expanded else "Tool results collapsed.")
+        self._notify(f"Tool output: {visibility.value}.")
 
     def action_toggle_thinking(self) -> None:
         """Toggle thinking-token display in the transcript."""
@@ -2952,6 +2958,7 @@ async def run_tui_app(
     provider_name: str | None = None,
     auto_compact_token_threshold: int | None = None,
     initial_prompt: str | None = None,
+    tool_output_visibility: ToolOutputVisibility | None = None,
     session_manager: SessionManager | None = None,
 ) -> None:
     """Create the default provider/session and run the Textual app."""
@@ -3004,9 +3011,16 @@ async def run_tui_app(
                 auto_compact_token_threshold=auto_compact_token_threshold,
             )
         )
+        tui_settings = load_tui_settings()
+        if tool_output_visibility is not None:
+            tui_settings = TuiSettings(
+                keybindings=tui_settings.keybindings,
+                theme=tui_settings.theme,
+                tool_output_visibility=tool_output_visibility,
+            )
         app = TauTuiApp(
             session,
-            tui_settings=load_tui_settings(),
+            tui_settings=tui_settings,
             startup_message=startup_message,
             initial_prompt=initial_prompt,
         )

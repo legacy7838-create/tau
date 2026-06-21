@@ -23,6 +23,7 @@ The CLI exposes this with:
 tau --output text "summarize this project"
 tau --output json "summarize this project"
 tau --output transcript "summarize this project"
+tau --output transcript --tool-output full "debug this failing command"
 ```
 
 `text` is the default mode.
@@ -72,11 +73,17 @@ Transcript mode preserves Tau's earlier print-mode behavior:
 
 - assistant deltas stream to stdout
 - tool starts, progress updates, and tool results render to stderr
-- successful and failed tool result content renders to stderr
+- successful and failed tool result detail renders to stderr according to
+  `--tool-output none|short|full`
 - errors render to stderr
 
 The transcript renderer uses Rich for human-oriented stderr output while keeping
 the default `text` mode script-friendly.
+
+`short` is the default tool-output visibility for transcript mode. It shows a
+bounded preview with truncation markers and uses the same shared preview helper
+as the Textual frontend. `edit` results include a compact unified diff preview
+when patch metadata is available; `full` prints the complete available result.
 
 This is useful while Tau does not yet have a full interactive TUI.
 
@@ -86,6 +93,7 @@ This is useful while Tau does not yet have a full interactive TUI.
 
 ```python
 output: PrintOutputMode = PrintOutputMode.text
+tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short
 ```
 
 It creates a renderer with:

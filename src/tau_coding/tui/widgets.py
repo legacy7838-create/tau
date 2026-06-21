@@ -22,6 +22,10 @@ from textual.widgets import RichLog, Static
 
 from tau_agent.tools import AgentTool
 from tau_coding.prompt_templates import PromptTemplate
+from tau_coding.rendering.tool_output import (
+    ToolOutputVisibility,
+    format_tool_result_block,
+)
 from tau_coding.skills import Skill
 from tau_coding.system_prompt import ProjectContextFile
 from tau_coding.tui.autocomplete import CompletionState
@@ -130,14 +134,14 @@ class TranscriptView(RichLog):
         theme = self._render_theme
         self._last_render_width = self.scrollable_content_region.width
         self.clear()
-        for index, item in enumerate(state.items):
+        for item in state.items:
             if item.role == "thinking" and not state.show_thinking:
                 continue
             self.write(
                 render_chat_item(
                     item,
                     theme=theme,
-                    show_tool_results=state.show_tool_results or item.always_show_tool_result,
+                    tool_output_visibility=_item_tool_output_visibility(state, item),
                 ),
                 expand=True,
                 shrink=True,
@@ -148,7 +152,7 @@ class TranscriptView(RichLog):
                 render_chat_item(
                     ChatItem(role="assistant", text=state.assistant_buffer),
                     theme=theme,
-                    show_tool_results=state.show_tool_results,
+                    tool_output_visibility=state.tool_output_visibility,
                 ),
                 expand=True,
                 shrink=True,
@@ -249,20 +253,28 @@ def render_chat_item(
     item: ChatItem,
     *,
     theme: TuiTheme = TAU_DARK_THEME,
-    show_tool_results: bool = False,
+    show_tool_results: bool | None = None,
+    tool_output_visibility: ToolOutputVisibility | None = None,
 ) -> RenderableType:
     """Render a chat item as a standalone Toad-inspired transcript block."""
+    resolved_tool_output_visibility = _resolved_tool_output_visibility(
+        show_tool_results=show_tool_results,
+        tool_output_visibility=tool_output_visibility,
+    )
     role_style = _chat_item_role_style(item, theme)
     body = (
         _render_tool_chat_body(
             item,
             body_style=theme.role_styles["tool"].body,
             accent_style=_tool_accent_style(item, theme=theme),
-            show_tool_results=show_tool_results,
+            tool_output_visibility=resolved_tool_output_visibility,
         )
         if item.role == "tool"
         else _render_chat_body(
-            _visible_chat_text(item, show_tool_results=show_tool_results),
+            _visible_chat_text(
+                item,
+                tool_output_visibility=resolved_tool_output_visibility,
+            ),
             role=item.role,
             body_style=role_style.body,
             syntax_theme=theme.syntax_theme,
@@ -277,6 +289,44 @@ def render_chat_item(
         Padding(body, (0, 1, 0, 1), style=role_style.body),
     )
     return Padding(table, (1, 1, 1, 0), style=role_style.body)
+
+
+def _item_tool_output_visibility(state: TuiState, item: ChatItem) -> ToolOutputVisibility:
+    if item.always_show_tool_result and state.tool_output_visibility is ToolOutputVisibility.none:
+        return ToolOutputVisibility.short
+    return state.tool_output_visibility
+
+
+def _resolved_tool_output_visibility(
+    *,
+    show_tool_results: bool | None,
+    tool_output_visibility: ToolOutputVisibility | None,
+) -> ToolOutputVisibility:
+    if tool_output_visibility is not None:
+        return tool_output_visibility
+    if show_tool_results is None:
+        return ToolOutputVisibility.none
+    return ToolOutputVisibility.full if show_tool_results else ToolOutputVisibility.none
+
+
+def _visible_tool_result_text(
+    item: ChatItem,
+    *,
+    tool_output_visibility: ToolOutputVisibility,
+) -> str | None:
+    if item.tool_result is not None:
+        return format_tool_result_block(
+            name=item.tool_result.name,
+            ok=item.tool_result.ok,
+            content=item.tool_result.content,
+            data=item.tool_result.data,
+            visibility=tool_output_visibility,
+        )
+    if item.tool_result_text is None:
+        return None
+    if tool_output_visibility is ToolOutputVisibility.none:
+        return item.tool_result_text.splitlines()[0]
+    return item.tool_result_text
 
 
 def _chat_item_role_style(item: ChatItem, theme: TuiTheme) -> TuiRoleStyle:
@@ -325,12 +375,16 @@ def _render_tool_chat_body(
     *,
     body_style: str,
     accent_style: str | None,
-    show_tool_results: bool,
+    tool_output_visibility: ToolOutputVisibility,
 ) -> Text:
     text = _render_tool_invocation(item.text, body_style=body_style, accent_style=accent_style)
-    if show_tool_results and item.tool_result_text:
+    tool_result_text = _visible_tool_result_text(
+        item,
+        tool_output_visibility=tool_output_visibility,
+    )
+    if tool_result_text:
         text.append("\n\n")
-        text.append(item.tool_result_text, style=body_style)
+        text.append(tool_result_text, style=body_style)
     return text
 
 
@@ -355,10 +409,18 @@ def _split_tool_invocation(text: str) -> tuple[str, str, str]:
     return "", name, f"{separator}{remainder}" if separator else ""
 
 
-def _visible_chat_text(item: ChatItem, *, show_tool_results: bool) -> str:
-    if item.role != "tool" or not show_tool_results or not item.tool_result_text:
+def _visible_chat_text(
+    item: ChatItem,
+    *,
+    tool_output_visibility: ToolOutputVisibility,
+) -> str:
+    tool_result_text = _visible_tool_result_text(
+        item,
+        tool_output_visibility=tool_output_visibility,
+    )
+    if item.role != "tool" or not tool_result_text:
         return item.text
-    return f"{item.text}\n\n{item.tool_result_text}"
+    return f"{item.text}\n\n{tool_result_text}"
 
 
 def _render_chat_body(
@@ -405,7 +467,7 @@ def _render_patch_body(
     body_style: str,
     syntax_theme: str,
 ) -> RenderableType | None:
-    marker = "\nPatch:\n"
+    marker = "\nDiff:\n" if "\nDiff:\n" in text else "\nPatch:\n"
     if marker not in text:
         return None
     before_patch, patch = text.split(marker, 1)

@@ -6,6 +6,10 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from tau_coding.paths import TauPaths
+from tau_coding.rendering.tool_output import (
+    ToolOutputVisibility,
+    normalize_tool_output_visibility,
+)
 
 
 class TuiConfigError(ValueError):
@@ -205,12 +209,14 @@ class TuiSettings:
 
     keybindings: TuiKeybindings = field(default_factory=TuiKeybindings)
     theme: TuiThemeName = "tau-dark"
+    tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short
 
     def to_json(self) -> dict[str, Any]:
         """Serialize these settings to JSON-compatible data."""
         return {
             "keybindings": self.keybindings.to_json(),
             "theme": self.theme,
+            "tool_output_visibility": self.tool_output_visibility.value,
         }
 
     @property
@@ -245,7 +251,7 @@ def save_tui_settings(settings: TuiSettings, paths: TauPaths | None = None) -> P
 
 def tui_settings_from_json(data: dict[str, Any]) -> TuiSettings:
     """Parse TUI settings from JSON-compatible data."""
-    allowed_fields = {"keybindings", "theme"}
+    allowed_fields = {"keybindings", "theme", "tool_output_visibility"}
     unknown_fields = set(data) - allowed_fields
     if unknown_fields:
         raise TuiConfigError(f"Unknown TUI settings field: {sorted(unknown_fields)[0]}")
@@ -256,6 +262,9 @@ def tui_settings_from_json(data: dict[str, Any]) -> TuiSettings:
     return TuiSettings(
         keybindings=_keybindings_from_json(keybindings_data),
         theme=_theme_name(data.get("theme", "tau-dark")),
+        tool_output_visibility=_tool_output_visibility(
+            data.get("tool_output_visibility", ToolOutputVisibility.short)
+        ),
     )
 
 
@@ -288,6 +297,13 @@ def _theme_name(value: object) -> TuiThemeName:
     if name == "tau-dark" or name == "tau-light" or name == "high-contrast":
         return cast(TuiThemeName, name)
     raise TuiConfigError(f"Unknown TUI theme: {name}")
+
+
+def _tool_output_visibility(value: object) -> ToolOutputVisibility:
+    try:
+        return normalize_tool_output_visibility(value)
+    except ValueError as exc:
+        raise TuiConfigError(str(exc)) from exc
 
 
 def _reject_duplicate_keys(values: dict[str, str]) -> None:

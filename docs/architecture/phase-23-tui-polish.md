@@ -15,9 +15,10 @@ Textual widgets render the transcript and controls
 
 ## Current polish slices
 
-Live tool results now render successful output previews in the transcript,
-matching restored session history. The TUI shows the first few lines and a
-preview hint when additional content is hidden, so large `read` or `bash`
+Live tool results now render through a configurable visibility level: `none`,
+`short`, or `full`. `short` is the default and shows a bounded preview with a
+clear truncation marker, while `full` remains available for debugging. The TUI
+derives this display from preserved tool-result data, so large `read` or `bash`
 results do not flood the conversation while the durable session still keeps the
 complete tool result for model context and replay.
 
@@ -32,11 +33,11 @@ Markdown. User, tool, status, and error blocks stay literal unless they are
 handled by the explicit code or patch renderers, which keeps pasted prompts and
 tool output predictable.
 
-Live `edit` tool results now include their unified patch in the tool block. This
-provides an inline diff view for file edits while keeping the event adapter and
-Textual widgets decoupled. Tool-result metadata is now preserved in
-`ToolResultMessage`, so restored session history can render the same edit patch
-blocks from persisted JSONL entries.
+Live `edit` tool results include their unified patch in `short` and `full` tool
+output modes. This provides an inline diff view for file edits while keeping the
+event adapter and Textual widgets decoupled. Tool-result metadata is preserved
+in `ToolResultMessage`, so restored session history can render the same edit
+patch blocks from persisted JSONL entries.
 
 The TUI also has a command-palette entry point. Pressing `Ctrl+K` focuses the
 prompt, inserts `/`, and shows all slash-command completions using the existing
@@ -68,10 +69,11 @@ then resumes the selected session through `CodingSession.resume()`. The picker
 lives entirely in the Textual frontend; the portable harness still has no
 session-selection policy.
 
-The built-in Textual frontend now reads optional keybinding settings from
-`~/.tau/tui.json`. This lets users remap the command palette, completion
-navigation, session picker, cancellation, and quit keys while keeping the
-configuration in `tau_coding.tui` instead of the reusable agent harness.
+The built-in Textual frontend now reads optional keybinding and tool-output
+visibility settings from `~/.tau/tui.json`. This lets users remap the command
+palette, completion navigation, session picker, cancellation, and quit keys
+while keeping the configuration in `tau_coding.tui` instead of the reusable
+agent harness.
 
 The same TUI settings file now supports named built-in themes. `tau-dark`
 remains the default, and `high-contrast` provides a brighter dark palette. The

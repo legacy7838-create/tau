@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 
 from tau_coding.paths import TauPaths
+from tau_coding.rendering import ToolOutputVisibility
 from tau_coding.tui.config import (
     HIGH_CONTRAST_THEME,
     TuiConfigError,
@@ -27,6 +28,7 @@ def test_load_tui_settings_returns_defaults_when_file_is_missing(tmp_path: Path)
 
     assert load_tui_settings(paths) == TuiSettings()
     assert load_tui_settings(paths).keybindings.quit == "ctrl+d"
+    assert load_tui_settings(paths).tool_output_visibility is ToolOutputVisibility.short
 
 
 def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
@@ -46,7 +48,8 @@ def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
             "toggle_thinking": "f4",
             "copy_message": "ctrl+b"
           },
-          "theme": "high-contrast"
+          "theme": "high-contrast",
+          "tool_output_visibility": "full"
         }
         """,
         encoding="utf-8",
@@ -66,15 +69,23 @@ def test_load_tui_settings_reads_keybindings(tmp_path: Path) -> None:
     assert settings.keybindings.cancel == "escape"
     assert settings.theme == "high-contrast"
     assert settings.resolved_theme == HIGH_CONTRAST_THEME
+    assert settings.tool_output_visibility is ToolOutputVisibility.full
 
 
 def test_save_tui_settings_writes_json(tmp_path: Path) -> None:
     paths = TauPaths(home=tmp_path / ".tau", agents_home=tmp_path / ".agents")
 
-    path = save_tui_settings(TuiSettings(theme="tau-light"), paths)
+    path = save_tui_settings(
+        TuiSettings(
+            theme="tau-light",
+            tool_output_visibility=ToolOutputVisibility.none,
+        ),
+        paths,
+    )
 
     assert path == tmp_path / ".tau" / "tui.json"
     assert load_tui_settings(paths).theme == "tau-light"
+    assert load_tui_settings(paths).tool_output_visibility is ToolOutputVisibility.none
 
 
 def test_tui_settings_ignores_removed_message_selection_keybindings() -> None:
@@ -112,6 +123,11 @@ def test_tui_settings_reject_unknown_theme() -> None:
         tui_settings_from_json({"theme": "solarized"})
 
 
+def test_tui_settings_reject_unknown_tool_output_visibility() -> None:
+    with pytest.raises(TuiConfigError, match="Unknown tool output visibility"):
+        tui_settings_from_json({"tool_output_visibility": "verbose"})
+
+
 def test_tui_settings_accept_light_theme() -> None:
     settings = tui_settings_from_json({"theme": "tau-light"})
 
@@ -133,6 +149,7 @@ def test_tui_keybindings_serialize_to_json() -> None:
             copy_message="ctrl+b",
         ),
         theme="high-contrast",
+        tool_output_visibility=ToolOutputVisibility.full,
     )
 
     assert settings.to_json()["keybindings"]["command_palette"] == "ctrl+j"
@@ -145,6 +162,7 @@ def test_tui_keybindings_serialize_to_json() -> None:
     assert settings.to_json()["keybindings"]["model_cycle"] == "f6"
     assert settings.to_json()["keybindings"]["copy_message"] == "ctrl+b"
     assert settings.to_json()["theme"] == "high-contrast"
+    assert settings.to_json()["tool_output_visibility"] == "full"
 
 
 def test_get_tui_theme_returns_builtin_theme() -> None:

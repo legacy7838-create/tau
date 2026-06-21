@@ -67,6 +67,7 @@ from tau_coding.rendering import (
     FinalTextRenderer,
     JsonEventRenderer,
     PrintOutputMode,
+    ToolOutputVisibility,
     TranscriptRenderer,
     create_event_renderer,
 )
@@ -168,6 +169,7 @@ __all__ = [
     "TauPaths",
     "TauResourcePaths",
     "ToolDefinition",
+    "ToolOutputVisibility",
     "TranscriptRenderer",
     "ThinkingLevel",
     "ThinkingParameter",

@@ -20,7 +20,7 @@ from tau_coding.provider_config import (
     ProviderSettings,
     load_provider_settings,
 )
-from tau_coding.rendering import PrintOutputMode
+from tau_coding.rendering import PrintOutputMode, ToolOutputVisibility
 from tau_coding.resources import TauResourcePaths
 from tau_coding.system_prompt import BuildSystemPromptOptions, build_system_prompt
 from tau_coding.tools import create_coding_tools
@@ -36,7 +36,18 @@ def test_version_command() -> None:
 def test_cli_without_prompt_invokes_tui_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
+    calls: list[
+        tuple[
+            str | None,
+            Path,
+            str | None,
+            bool,
+            str | None,
+            int | None,
+            str | None,
+            ToolOutputVisibility | None,
+        ]
+    ] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -46,6 +57,7 @@ def test_cli_without_prompt_invokes_tui_runner(
         provider_name: str | None,
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
+        tool_output_visibility: ToolOutputVisibility | None,
     ) -> None:
         calls.append(
             (
@@ -56,6 +68,7 @@ def test_cli_without_prompt_invokes_tui_runner(
                 provider_name,
                 auto_compact_token_threshold,
                 initial_prompt,
+                tool_output_visibility,
             )
         )
 
@@ -65,13 +78,24 @@ def test_cli_without_prompt_invokes_tui_runner(
     result = CliRunner().invoke(app, [])
 
     assert result.exit_code == 0
-    assert calls == [(None, tmp_path, None, False, None, None, None)]
+    assert calls == [(None, tmp_path, None, False, None, None, None, None)]
 
 
 def test_cli_positional_prompt_invokes_tui_runner(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
+    calls: list[
+        tuple[
+            str | None,
+            Path,
+            str | None,
+            bool,
+            str | None,
+            int | None,
+            str | None,
+            ToolOutputVisibility | None,
+        ]
+    ] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -81,6 +105,7 @@ def test_cli_positional_prompt_invokes_tui_runner(
         provider_name: str | None,
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
+        tool_output_visibility: ToolOutputVisibility | None,
     ) -> None:
         calls.append(
             (
@@ -91,6 +116,7 @@ def test_cli_positional_prompt_invokes_tui_runner(
                 provider_name,
                 auto_compact_token_threshold,
                 initial_prompt,
+                tool_output_visibility,
             )
         )
 
@@ -100,7 +126,7 @@ def test_cli_positional_prompt_invokes_tui_runner(
     result = CliRunner().invoke(app, ["explain this repo"])
 
     assert result.exit_code == 0
-    assert calls == [(None, tmp_path, None, False, None, None, "explain this repo")]
+    assert calls == [(None, tmp_path, None, False, None, None, "explain this repo", None)]
 
 
 @pytest.mark.anyio
@@ -371,7 +397,9 @@ def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch
         cwd: Path,
         output: PrintOutputMode,
         provider_name: str | None,
+        tool_output_visibility: ToolOutputVisibility,
     ) -> bool:
+        del prompt, model, cwd, output, provider_name, tool_output_visibility
         return False
 
     monkeypatch.setattr(cli, "run_openai_print_mode", fake_run_openai_print_mode)
@@ -381,10 +409,51 @@ def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch
     assert result.exit_code == 1
 
 
+def test_cli_passes_tool_output_visibility_to_print_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    calls: list[tuple[str, PrintOutputMode, ToolOutputVisibility]] = []
+
+    async def fake_run_openai_print_mode(
+        prompt: str,
+        model: str | None,
+        cwd: Path,
+        output: PrintOutputMode,
+        provider_name: str | None,
+        tool_output_visibility: ToolOutputVisibility,
+    ) -> bool:
+        del model, cwd, provider_name
+        calls.append((prompt, output, tool_output_visibility))
+        return True
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(cli, "run_openai_print_mode", fake_run_openai_print_mode)
+
+    result = CliRunner().invoke(
+        app,
+        ["--output", "transcript", "--tool-output", "full", "-p", "hello"],
+    )
+
+    assert result.exit_code == 0
+    assert calls == [("hello", PrintOutputMode.transcript, ToolOutputVisibility.full)]
+
+
 def test_default_tui_invokes_tui_runner_with_flags(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[tuple[str | None, Path, str | None, bool, str | None, int | None, str | None]] = []
+    calls: list[
+        tuple[
+            str | None,
+            Path,
+            str | None,
+            bool,
+            str | None,
+            int | None,
+            str | None,
+            ToolOutputVisibility | None,
+        ]
+    ] = []
 
     async def fake_run_openai_tui(
         model: str | None,
@@ -394,6 +463,7 @@ def test_default_tui_invokes_tui_runner_with_flags(
         provider_name: str | None,
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
+        tool_output_visibility: ToolOutputVisibility | None,
     ) -> None:
         calls.append(
             (
@@ -404,6 +474,7 @@ def test_default_tui_invokes_tui_runner_with_flags(
                 provider_name,
                 auto_compact_token_threshold,
                 initial_prompt,
+                tool_output_visibility,
             )
         )
 
@@ -426,7 +497,7 @@ def test_default_tui_invokes_tui_runner_with_flags(
     )
 
     assert result.exit_code == 0
-    assert calls == [("fake", tmp_path, "session-1", False, "local", 1000, None)]
+    assert calls == [("fake", tmp_path, "session-1", False, "local", 1000, None, None)]
 
 
 def test_default_tui_rejects_resume_with_new_session(
@@ -440,9 +511,10 @@ def test_default_tui_rejects_resume_with_new_session(
         provider_name: str | None,
         auto_compact_token_threshold: int | None,
         initial_prompt: str | None,
+        tool_output_visibility: ToolOutputVisibility | None,
     ) -> None:
         del model, cwd, session_id, new_session, provider_name, auto_compact_token_threshold
-        del initial_prompt
+        del initial_prompt, tool_output_visibility
         raise RuntimeError("--resume and --new-session cannot be used together")
 
     monkeypatch.setattr(cli, "run_openai_tui", fake_run_openai_tui)

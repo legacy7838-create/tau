@@ -16,17 +16,26 @@ from tau_agent import (
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
+from tau_coding.rendering.tool_output import (
+    ToolOutputVisibility,
+    format_tool_result_block,
+)
 from tau_coding.tui.state import format_tool_call_block
 
 
 class TranscriptRenderer:
     """Render assistant deltas live and tool activity to stderr."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        tool_output_visibility: ToolOutputVisibility = ToolOutputVisibility.short,
+    ) -> None:
         self._assistant_started = False
         self._assistant_ended = False
         self._failed = False
         self._console = Console(stderr=True, highlight=False)
+        self._tool_output_visibility = tool_output_visibility
 
     def render(self, event: AgentEvent) -> None:
         """Render one agent event."""
@@ -59,8 +68,16 @@ class TranscriptRenderer:
             status = "✓" if event.result.ok else "✗"
             style = "green" if event.result.ok else "red"
             self._print_tool_line(status, event.result.name, style=style)
-            if event.result.content:
-                self._print_tool_content(event.result.content)
+            result_block = format_tool_result_block(
+                name=event.result.name,
+                ok=event.result.ok,
+                content=event.result.content,
+                data=event.result.data,
+                visibility=self._tool_output_visibility,
+            )
+            details = "\n".join(result_block.splitlines()[1:])
+            if details:
+                self._print_tool_content(details)
             return
 
         if isinstance(event, ErrorEvent):

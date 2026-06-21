@@ -232,7 +232,7 @@ def test_tui_adapter_renders_live_edit_patch() -> None:
         (
             "tool",
             "✓ edit",
-            "✓ edit\nSuccessfully replaced 1 block.\n\nPatch:\n--- a.py\n+++ a.py\n@@\n-old\n+new",
+            "✓ edit\nSuccessfully replaced 1 block.\n\nDiff:\n--- a.py\n+++ a.py\n@@\n-old\n+new",
         )
     ]
 

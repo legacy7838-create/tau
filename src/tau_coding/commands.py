@@ -385,7 +385,7 @@ def _hotkeys_command(context: CommandContext) -> CommandResult:
         "- Ctrl+R: open session picker",
         "- Shift+Tab: cycle thinking mode",
         "- Ctrl+T: toggle thinking tokens",
-        "- Ctrl+O: collapse or expand tool output",
+        "- Ctrl+O: cycle tool output (short, full, none)",
         "- Ctrl+C: clear prompt input",
         "- Ctrl+D: quit",
     ]

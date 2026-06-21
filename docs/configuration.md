@@ -129,6 +129,7 @@ Example:
 ```json
 {
   "theme": "high-contrast",
+  "tool_output_visibility": "short",
   "keybindings": {
     "cancel": "escape",
     "command_palette": "ctrl+j",
@@ -175,10 +176,24 @@ Assistant Markdown renders fenced code blocks with syntax highlighting when the
 fence language is known. Unknown fence languages fall back to plain code
 formatting so assistant output remains readable.
 
+Tool output visibility controls how much result detail appears in the Textual
+transcript:
+
+- `none` shows only the tool invocation and success/failure status.
+- `short` shows a bounded preview with a clear truncation marker when output is
+  hidden. This is the default.
+- `full` shows the complete available tool result, which is useful for
+  debugging but can be noisy.
+
+In `short` mode, `edit` tool results include a compact unified diff preview with
+the edited file path when patch metadata is available. Press `Ctrl+O` in the TUI
+to cycle through `short`, `full`, and `none` for the current session.
+
 Any omitted keybinding uses the built-in default. Key names use Textual's key
 syntax, such as `ctrl+k`, `tab`, `shift+tab`, `down`, `up`, and `f2`. Tau rejects unknown
-themes, unknown keybinding names, empty keys, and duplicate assignments so
-mistakes fail early instead of silently changing terminal behavior.
+themes, unknown tool output visibility levels, unknown keybinding names, empty
+keys, and duplicate assignments so mistakes fail early instead of silently
+changing terminal behavior.
 
 ## Sessions
 
