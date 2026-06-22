@@ -31,7 +31,21 @@ from textual.widgets import (
 )
 from textual.worker import Worker
 
-from tau_agent import ErrorEvent
+from tau_agent import (
+    AgentEndEvent,
+    AgentEvent,
+    AgentStartEvent,
+    ErrorEvent,
+    MessageDeltaEvent,
+    MessageEndEvent,
+    MessageStartEvent,
+    QueueUpdateEvent,
+    RetryEvent,
+    ThinkingDeltaEvent,
+    ToolExecutionEndEvent,
+    ToolExecutionStartEvent,
+    ToolExecutionUpdateEvent,
+)
 from tau_agent.messages import AgentMessage
 from tau_agent.tools import AgentTool
 from tau_ai import ProviderErrorEvent, ProviderEvent
@@ -1878,6 +1892,7 @@ class TauTuiApp(App[None]):
         self.tui_settings = TuiSettings(
             keybindings=self.tui_settings.keybindings,
             theme=theme,
+            auto_copy_selection=self.tui_settings.auto_copy_selection,
         )
         save_tui_settings(self.tui_settings)
         self.refresh_css(animate=False)
@@ -1908,7 +1923,7 @@ class TauTuiApp(App[None]):
                 self.adapter.apply(event)
                 if isinstance(event, ErrorEvent) and not event.recoverable:
                     _attach_diagnostic_log_path_to_error(self.state, self.session)
-                self._refresh()
+                await self._apply_streaming_transcript_event(event)
         except Exception as exc:  # noqa: BLE001 - surface unexpected worker errors in the TUI
             if active_run_id != self._prompt_run_id:
                 return
@@ -1920,6 +1935,76 @@ class TauTuiApp(App[None]):
         finally:
             if active_run_id == self._prompt_run_id:
                 self._prompt_worker = None
+
+    async def _apply_streaming_transcript_event(self, event: AgentEvent) -> None:
+        """Apply an agent event to mounted transcript widgets without full redraws."""
+        if not self.screen_stack:
+            self._refresh()
+            return
+        theme = self.tui_settings.resolved_theme
+        try:
+            transcript = self.query_one("#transcript", TranscriptView)
+        except NoMatches:
+            self._refresh()
+            return
+        if isinstance(event, AgentStartEvent):
+            self._refresh_chrome()
+            return
+        if isinstance(event, AgentEndEvent):
+            await transcript.finish_assistant_message()
+            self._refresh_chrome()
+            return
+        if isinstance(event, MessageStartEvent):
+            if event.message_role == "assistant":
+                await transcript.start_assistant_message(theme=theme)
+            return
+        if isinstance(event, MessageDeltaEvent):
+            await transcript.append_assistant_delta(event.delta, theme=theme)
+            self._sync_activity_indicator()
+            return
+        if isinstance(event, ThinkingDeltaEvent):
+            await transcript.append_thinking_delta(
+                event.delta,
+                theme=theme,
+                show_thinking=self.state.show_thinking,
+            )
+            self._sync_activity_indicator()
+            return
+        if isinstance(event, MessageEndEvent):
+            if event.message.role == "user":
+                self._refresh()
+                return
+            if event.message.role == "assistant":
+                await transcript.finish_assistant_message(event.message.content)
+                self._refresh_chrome()
+                return
+            return
+        if isinstance(event, ToolExecutionStartEvent):
+            await transcript.finish_assistant_message()
+            await transcript.append_item(
+                self.state.items[-1],
+                theme=theme,
+                show_tool_results=self.state.show_tool_results,
+            )
+            self._refresh_chrome()
+            return
+        if isinstance(event, ToolExecutionUpdateEvent | RetryEvent | ErrorEvent):
+            await transcript.finish_assistant_message()
+            if self.state.items:
+                await transcript.append_item(
+                    self.state.items[-1],
+                    theme=theme,
+                    show_tool_results=self.state.show_tool_results,
+                )
+            self._refresh_chrome()
+            return
+        if isinstance(event, ToolExecutionEndEvent):
+            self._refresh()
+            return
+        if isinstance(event, QueueUpdateEvent):
+            self._refresh_chrome()
+            return
+        self._refresh_chrome()
 
     def action_cancel(self) -> None:
         """Cancel the active agent turn."""
@@ -2420,13 +2505,18 @@ class TauTuiApp(App[None]):
 
     def _refresh(self) -> None:
         theme = self.tui_settings.resolved_theme
+        self._refresh_chrome(theme=theme)
+        transcript = self.query_one("#transcript", TranscriptView)
+        transcript.update_from_state(self.state, theme=theme)
+
+    def _refresh_chrome(self, *, theme: TuiTheme | None = None) -> None:
+        """Refresh non-transcript chrome without remounting transcript blocks."""
+        theme = theme or self.tui_settings.resolved_theme
         self._sync_queue_state()
         sidebar = self.query_one("#sidebar", SessionSidebar)
         sidebar.update_from_session(self.session, theme=theme)
         compact_info = self.query_one("#compact-session-info", CompactSessionInfo)
         compact_info.update_from_session(self.session, theme=theme)
-        transcript = self.query_one("#transcript", TranscriptView)
-        transcript.update_from_state(self.state, theme=theme)
         queued_messages = self.query_one("#queued-messages", Static)
         queued_messages.display = self.state.queued_message_count > 0
         queued_messages.update(_render_queued_messages(self.state, theme=theme))

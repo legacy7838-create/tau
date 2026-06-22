@@ -18,7 +18,9 @@ from tau_agent import (
     AgentToolResult,
     AssistantMessage,
     ErrorEvent,
+    MessageDeltaEvent,
     MessageEndEvent,
+    MessageStartEvent,
     QueueUpdateEvent,
     ToolCall,
     ToolExecutionEndEvent,
@@ -59,6 +61,7 @@ from tau_coding.tui.config import (
 )
 from tau_coding.tui.state import ChatItem
 from tau_coding.tui.widgets import (
+    StreamingTranscriptMessageWidget,
     TranscriptMessageWidget,
     TranscriptView,
     _compact_token_count,
@@ -820,6 +823,43 @@ def test_transcript_selection_text_tracks_tool_result_visibility() -> None:
     assert transcript_item_selection_text(item, show_tool_results=True) == (
         "→ read README.md\n\n✓ read\nREADME contents"
     )
+
+
+@pytest.mark.anyio
+async def test_tui_streaming_deltas_update_active_message_without_full_refresh() -> None:
+    session = FakeSession(
+        events=[
+            AgentStartEvent(),
+            MessageStartEvent(),
+            MessageDeltaEvent(delta="alpha "),
+            MessageDeltaEvent(delta="beta"),
+            MessageEndEvent(message=AssistantMessage(content="alpha beta")),
+            AgentEndEvent(),
+        ]
+    )
+    app = TauTuiApp(session)
+    full_refreshes = 0
+
+    original_refresh = app._refresh
+
+    def tracking_refresh() -> None:
+        nonlocal full_refreshes
+        full_refreshes += 1
+        original_refresh()
+
+    app._refresh = tracking_refresh  # type: ignore[method-assign]
+
+    async with app.run_test(size=(120, 30)) as pilot:
+        await app._run_prompt("stream")
+        await pilot.pause()
+
+        transcript = app.query_one("#transcript", TranscriptView)
+        streamed = app.query_one(StreamingTranscriptMessageWidget)
+        transcript_text = "\n".join(line.text for line in transcript.lines)
+
+    assert full_refreshes == 1
+    assert streamed.selection_text == "alpha beta"
+    assert "alpha beta" in transcript_text
 
 
 @pytest.mark.anyio

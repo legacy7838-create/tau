@@ -18,11 +18,13 @@ from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
-from textual.containers import VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
 from textual.geometry import Offset
 from textual.selection import Selection
+from textual.widgets import Markdown as TextualMarkdown
 from textual.widgets import Static
+from textual.widgets.markdown import MarkdownStream
 
 from tau_agent.tools import AgentTool
 from tau_coding.prompt_templates import PromptTemplate
@@ -111,6 +113,14 @@ class CompactSessionInfo(Static):
         self.update(render_compact_session_info(session, theme=theme))
 
 
+class ThemedMarkdownWidget(TextualMarkdown):
+    """Textual Markdown widget reserved for Tau transcript streaming."""
+
+    def __init__(self, markdown: str | None = None, *, theme: TuiTheme) -> None:
+        del theme
+        super().__init__(markdown)
+
+
 class TranscriptMessageWidget(Static):
     """One selectable transcript message block."""
 
@@ -155,6 +165,81 @@ class TranscriptMessageWidget(Static):
         return selected_text, "\n"
 
 
+class StreamingTranscriptMessageWidget(Vertical):
+    """One assistant or thinking message block that accepts streamed fragments."""
+
+    DEFAULT_CSS = """
+    StreamingTranscriptMessageWidget {
+        width: 1fr;
+        height: auto;
+        margin: 1 1 1 0;
+    }
+
+    StreamingTranscriptMessageWidget > .streaming-message-row {
+        height: auto;
+    }
+
+    StreamingTranscriptMessageWidget > .streaming-message-row > .streaming-message-gutter {
+        width: 1;
+        height: auto;
+    }
+
+    StreamingTranscriptMessageWidget > .streaming-message-row > ThemedMarkdownWidget {
+        width: 1fr;
+        height: auto;
+        padding: 0 1 0 1;
+    }
+    """
+
+    def __init__(self, item: ChatItem, *, theme: TuiTheme) -> None:
+        if item.role not in {"assistant", "thinking"}:
+            raise ValueError("Streaming transcript widgets only support assistant/thinking items")
+        self.item = item
+        self.selection_text = item.text
+        self._theme = theme
+        self._markdown: ThemedMarkdownWidget | None = None
+        self._stream: MarkdownStream | None = None
+        super().__init__(classes="transcript-message")
+
+    def compose(self) -> Any:
+        self._markdown = ThemedMarkdownWidget(self.item.text, theme=self._theme)
+        with Horizontal(classes="streaming-message-row"):
+            yield Static("▌", classes="streaming-message-gutter")
+            yield self._markdown
+
+    @property
+    def stream(self) -> MarkdownStream:
+        markdown = self._markdown
+        if markdown is None:
+            raise RuntimeError("Streaming transcript widget is not mounted")
+        if self._stream is None:
+            self._stream = markdown.get_stream(markdown)
+        return self._stream
+
+    async def append_fragment(self, fragment: str) -> None:
+        """Append streamed markdown without rebuilding the whole transcript."""
+        if not fragment:
+            return
+        self.item.text += fragment
+        self.selection_text += fragment
+        await self.stream.write(fragment)
+
+    async def replace_text(self, text: str) -> None:
+        """Replace the current markdown text, usually with the final provider message."""
+        self.item.text = text
+        self.selection_text = text
+        if self._markdown is not None:
+            self._stream = None
+            await self._markdown.update(text)
+
+    def get_selection(self, selection: Selection) -> tuple[str, str] | None:
+        """Return selected text from this streamed message block."""
+        selected_text = _extract_text_selection(self.selection_text, selection)
+        if not selected_text:
+            return None
+        return selected_text, "\n"
+
+
 class TranscriptView(VerticalScroll):
     """Scrollable transcript view backed by individual selectable message widgets."""
 
@@ -169,6 +254,9 @@ class TranscriptView(VerticalScroll):
         self._render_state: TuiState | None = None
         self._render_theme: TuiTheme = TAU_DARK_THEME
         self._last_render_width = 0
+        self._active_assistant_widget: StreamingTranscriptMessageWidget | None = None
+        self._active_thinking_widget: StreamingTranscriptMessageWidget | None = None
+        self._hidden_thinking_placeholder_visible = False
 
     def update_from_state(
         self,
@@ -199,7 +287,16 @@ class TranscriptView(VerticalScroll):
             return
         theme = self._render_theme
         self._last_render_width = self.scrollable_content_region.width
-        self.remove_children(TranscriptMessageWidget)
+        self.remove_children(
+            [
+                child
+                for child in self.children
+                if isinstance(child, TranscriptMessageWidget | StreamingTranscriptMessageWidget)
+            ]
+        )
+        self._active_assistant_widget = None
+        self._active_thinking_widget = None
+        self._hidden_thinking_placeholder_visible = False
         hidden_thinking_placeholder = False
         for item in state.items:
             if item.role == "thinking" and not state.show_thinking:
@@ -236,14 +333,142 @@ class TranscriptView(VerticalScroll):
         if scroll_end:
             self.scroll_end(animate=False)
 
+    async def append_item(
+        self,
+        item: ChatItem,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+        show_tool_results: bool = False,
+        scroll_end: bool = True,
+    ) -> TranscriptMessageWidget | StreamingTranscriptMessageWidget:
+        """Append one transcript item without rebuilding previous blocks."""
+        self._render_theme = theme
+        widget = _transcript_widget(
+            item,
+            theme=theme,
+            show_tool_results=show_tool_results,
+        )
+        await self.mount(widget)
+        self._active_assistant_widget = None
+        self._active_thinking_widget = None
+        self._hidden_thinking_placeholder_visible = False
+        self._last_render_width = self.scrollable_content_region.width
+        self.refresh(layout=True)
+        if scroll_end:
+            self.scroll_end(animate=False)
+        return widget
+
+    async def start_assistant_message(
+        self,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+        scroll_end: bool = True,
+    ) -> StreamingTranscriptMessageWidget:
+        """Create the active assistant message widget if needed."""
+        if self._active_assistant_widget is not None:
+            return self._active_assistant_widget
+        widget = StreamingTranscriptMessageWidget(
+            ChatItem(role="assistant", text=""),
+            theme=theme,
+        )
+        self._render_theme = theme
+        await self.mount(widget)
+        self._active_assistant_widget = widget
+        self._last_render_width = self.scrollable_content_region.width
+        if scroll_end:
+            self.scroll_end(animate=False)
+        return widget
+
+    async def append_assistant_delta(
+        self,
+        delta: str,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+        scroll_end: bool = True,
+    ) -> None:
+        """Append streamed assistant text to the active message widget."""
+        self._active_thinking_widget = None
+        self._hidden_thinking_placeholder_visible = False
+        widget = await self.start_assistant_message(theme=theme, scroll_end=scroll_end)
+        await widget.append_fragment(delta)
+        if scroll_end:
+            self.scroll_end(animate=False)
+
+    async def append_thinking_delta(
+        self,
+        delta: str,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+        show_thinking: bool,
+        scroll_end: bool = True,
+    ) -> None:
+        """Append streamed thinking text or one hidden-thinking placeholder."""
+        if not show_thinking:
+            if self._hidden_thinking_placeholder_visible:
+                return
+            await self.append_item(
+                ChatItem(
+                    role="thinking",
+                    text="Thinking… Press Ctrl+T to show thinking tokens.",
+                ),
+                theme=theme,
+                scroll_end=scroll_end,
+            )
+            self._hidden_thinking_placeholder_visible = True
+            return
+        self._hidden_thinking_placeholder_visible = False
+        if self._active_thinking_widget is None:
+            self._active_thinking_widget = StreamingTranscriptMessageWidget(
+                ChatItem(role="thinking", text=""),
+                theme=theme,
+            )
+            await self.mount(self._active_thinking_widget)
+        await self._active_thinking_widget.append_fragment(delta)
+        if scroll_end:
+            self.scroll_end(animate=False)
+
+    async def finish_assistant_message(self, text: str | None = None) -> None:
+        """Finalize the active assistant widget after the provider sends the full message."""
+        widget = self._active_assistant_widget
+        if widget is None:
+            if text:
+                await self.append_item(
+                    ChatItem(role="assistant", text=text),
+                    theme=self._render_theme,
+                )
+            return
+        if text is not None and text != widget.selection_text:
+            await widget.replace_text(text)
+        self._active_assistant_widget = None
+
     @property
     def lines(self) -> tuple[TranscriptLine, ...]:
         """Compatibility text view for tests and lightweight transcript inspection."""
+        messages = [
+            child
+            for child in self.children
+            if isinstance(child, TranscriptMessageWidget | StreamingTranscriptMessageWidget)
+        ]
         return tuple(
             TranscriptLine(line)
-            for message in self.query(TranscriptMessageWidget)
+            for message in messages
             for line in message.selection_text.splitlines()
         )
+
+
+def _transcript_widget(
+    item: ChatItem,
+    *,
+    theme: TuiTheme,
+    show_tool_results: bool,
+) -> TranscriptMessageWidget | StreamingTranscriptMessageWidget:
+    if item.role in {"assistant", "thinking"}:
+        return StreamingTranscriptMessageWidget(item, theme=theme)
+    return TranscriptMessageWidget(
+        item,
+        theme=theme,
+        show_tool_results=show_tool_results,
+    )
 
 
 def transcript_item_selection_text(

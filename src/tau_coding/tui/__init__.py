@@ -23,6 +23,7 @@ from tau_coding.tui.state import ChatItem, TuiState
 from tau_coding.tui.widgets import (
     CompactSessionInfo,
     SessionSidebar,
+    StreamingTranscriptMessageWidget,
     TranscriptMessageWidget,
     TranscriptView,
     render_chat_item,
@@ -40,6 +41,7 @@ __all__ = [
     "SessionSidebar",
     "TAU_DARK_THEME",
     "TAU_LIGHT_THEME",
+    "StreamingTranscriptMessageWidget",
     "TranscriptMessageWidget",
     "TranscriptView",
     "TuiEventAdapter",
