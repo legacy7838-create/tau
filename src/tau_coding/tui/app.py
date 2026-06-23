@@ -1,6 +1,7 @@
 """Minimal Textual app for Tau coding sessions."""
 
 import asyncio
+import time
 from collections.abc import AsyncIterator, Callable, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
@@ -53,6 +54,7 @@ from tau_ai import ProviderErrorEvent, ProviderEvent
 from tau_ai.provider import CancellationToken
 from tau_coding.commands import CommandRegistry, create_default_command_registry
 from tau_coding.credentials import FileCredentialStore, OAuthCredential
+from tau_coding.elapsed import format_elapsed_line
 from tau_coding.oauth import OAuthAuthInfo, OAuthPrompt, login_openai_codex
 from tau_coding.provider_catalog import (
     BUILTIN_PROVIDER_CATALOG,
@@ -2010,6 +2012,7 @@ class TauTuiApp(App[None]):
     async def _run_prompt(self, text: str, run_id: int | None = None) -> None:
         """Run one prompt and stream session events into the TUI state."""
         active_run_id = self._prompt_run_id if run_id is None else run_id
+        started_at = time.monotonic()
         try:
             async for event in self.session.prompt(text):
                 if active_run_id != self._prompt_run_id:
@@ -2028,7 +2031,29 @@ class TauTuiApp(App[None]):
             self._refresh()
         finally:
             if active_run_id == self._prompt_run_id:
+                if self.state.error is None:
+                    self.state.add_item(
+                        "status", format_elapsed_line(time.monotonic() - started_at)
+                    )
+                    await self._append_latest_transcript_item()
                 self._prompt_worker = None
+
+    async def _append_latest_transcript_item(self) -> None:
+        """Append the newest state item to the mounted transcript when possible."""
+        if not self.screen_stack or not self.state.items:
+            self._refresh()
+            return
+        try:
+            transcript = self.query_one("#transcript", TranscriptView)
+        except NoMatches:
+            self._refresh()
+            return
+        await transcript.append_item(
+            self.state.items[-1],
+            theme=self.tui_settings.resolved_theme,
+            show_tool_results=self.state.show_tool_results,
+        )
+        self._refresh_chrome()
 
     async def _apply_streaming_transcript_event(self, event: AgentEvent) -> None:
         """Apply an agent event to mounted transcript widgets without full redraws."""

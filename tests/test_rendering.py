@@ -17,13 +17,21 @@ from tau_agent import (
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
+from tau_coding.elapsed import format_elapsed_line, format_elapsed_time
 from tau_coding.rendering import FinalTextRenderer, JsonEventRenderer, TranscriptRenderer
+
+
+def test_format_elapsed_time_uses_short_and_long_forms() -> None:
+    assert format_elapsed_time(0.4) == "0:00"
+    assert format_elapsed_time(65) == "1:05"
+    assert format_elapsed_time(3661) == "1:01:01"
+    assert format_elapsed_line(65) == "took tau 1:05"
 
 
 def test_transcript_renderer_streams_text_and_tool_events(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    renderer = TranscriptRenderer()
+    renderer = TranscriptRenderer(started_at=0, clock=lambda: 65)
 
     renderer.render(MessageStartEvent())
     renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
@@ -49,8 +57,8 @@ def test_transcript_renderer_streams_text_and_tool_events(
         )
     )
 
-    captured = capsys.readouterr()
     assert renderer.finish() is True
+    captured = capsys.readouterr()
     assert captured.out == "Hello\n"
     assert "hidden reasoning" not in captured.out
     assert "hidden reasoning" not in captured.err
@@ -59,6 +67,7 @@ def test_transcript_renderer_streams_text_and_tool_events(
     assert "… reading" in captured.err
     assert "✓ read" in captured.err
     assert "done" in captured.err
+    assert "took tau 1:05" in captured.err
 
 
 def test_transcript_renderer_fails_on_non_recoverable_error(
@@ -76,7 +85,7 @@ def test_transcript_renderer_fails_on_non_recoverable_error(
 def test_final_text_renderer_prints_only_final_message(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    renderer = FinalTextRenderer()
+    renderer = FinalTextRenderer(show_elapsed=False)
 
     renderer.render(ThinkingDeltaEvent(delta="hidden reasoning"))
     renderer.render(MessageDeltaEvent(delta="ignored"))
@@ -89,12 +98,14 @@ def test_final_text_renderer_prints_only_final_message(
     assert captured_after_finish.out == ""
     assert captured_after_finish.err == ""
 
+    renderer = FinalTextRenderer(started_at=0, clock=lambda: 65)
     renderer.render(MessageEndEvent(message=AssistantMessage(content="Final answer")))
     ok = renderer.finish()
     captured = capsys.readouterr()
 
     assert ok is True
     assert captured.out == "Final answer\n"
+    assert captured.err == "took tau 1:05\n"
 
 
 def test_final_text_renderer_prints_errors_on_finish(capsys: pytest.CaptureFixture[str]) -> None:

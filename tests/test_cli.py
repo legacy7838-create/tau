@@ -129,7 +129,7 @@ async def test_run_print_mode_prints_final_assistant_text(
     captured = capsys.readouterr()
     assert ok is True
     assert captured.out == "Hello\n"
-    assert captured.err == ""
+    assert captured.err.startswith("took tau ")
     assert provider.calls[0][0] == "fake"
     assert provider.calls[0][1] == build_system_prompt(
         BuildSystemPromptOptions(cwd=tmp_path, tools=create_coding_tools(cwd=tmp_path))
@@ -361,7 +361,7 @@ async def test_run_print_mode_can_emit_live_transcript(
     captured = capsys.readouterr()
     assert ok is True
     assert captured.out == "Hello\n"
-    assert captured.err == ""
+    assert captured.err.startswith("took tau ")
 
 
 def test_cli_exits_nonzero_when_print_mode_fails(monkeypatch: pytest.MonkeyPatch) -> None:

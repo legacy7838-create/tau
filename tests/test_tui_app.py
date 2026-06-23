@@ -969,6 +969,8 @@ async def test_tui_streaming_deltas_update_active_message_without_full_refresh()
     assert full_refreshes == 1
     assert streamed.selection_text == "alpha beta"
     assert "alpha beta" in transcript_text
+    assert app.state.items[-1].role == "status"
+    assert app.state.items[-1].text.startswith("took tau ")
 
 
 @pytest.mark.anyio
@@ -2887,8 +2889,10 @@ async def test_tui_prompt_worker_refreshes_directly() -> None:
 
     await app._run_prompt("hello")
 
-    assert refreshes == 2
+    assert refreshes == 3
     assert app.state.running is False
+    assert app.state.items[-1].role == "status"
+    assert app.state.items[-1].text.startswith("took tau ")
 
 
 @pytest.mark.anyio
@@ -2975,12 +2979,14 @@ async def test_tui_prompt_worker_refreshes_context_after_message_changes() -> No
 
     await app._run_prompt("read README")
 
-    assert observed_context == [10, 20, 30, 40, 40, 50]
+    assert observed_context == [10, 20, 30, 40, 40, 50, 50]
     assert [(item.role, item.text, item.tool_result_text) for item in app.state.items] == [
         ("user", "read README", None),
         ("assistant", "Using a tool.", None),
         ("tool", "→ read README.md", "✓ read\ncontents"),
+        ("status", app.state.items[-1].text, None),
     ]
+    assert app.state.items[-1].text.startswith("took tau ")
 
 
 @pytest.mark.anyio
@@ -3033,6 +3039,7 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     calls: list[str] = []
+
     class FakeCredentialStore:
         def get(self, name: str) -> str | None:
             return "stored-key" if name == "openai" else None
@@ -3109,8 +3116,9 @@ async def test_run_tui_app_falls_back_to_first_credentialed_provider(
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider, **kwargs: calls.append(f"provider:{provider.name}:{kwargs['model']}")
-        or FakeProvider(),
+        lambda provider, **kwargs: (
+            calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
+        ),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
@@ -3210,8 +3218,9 @@ async def test_run_tui_app_ignores_latest_directory_provider_model_for_new_sessi
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider, **kwargs: calls.append(f"provider:{provider.name}:{kwargs['model']}")
-        or FakeProvider(),
+        lambda provider, **kwargs: (
+            calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
+        ),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)
@@ -3320,8 +3329,9 @@ async def test_run_tui_app_does_not_start_new_session_from_scoped_model(
     monkeypatch.setattr(
         tui_app,
         "create_model_provider",
-        lambda provider, **kwargs: calls.append(f"provider:{provider.name}:{kwargs['model']}")
-        or FakeProvider(),
+        lambda provider, **kwargs: (
+            calls.append(f"provider:{provider.name}:{kwargs['model']}") or FakeProvider()
+        ),
     )
     monkeypatch.setattr(tui_app, "CodingSession", FakeCodingSession)
     monkeypatch.setattr(tui_app, "TauTuiApp", FakeApp)

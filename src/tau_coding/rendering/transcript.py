@@ -1,5 +1,8 @@
 """Human-readable streaming transcript renderer."""
 
+import time
+from collections.abc import Callable
+
 import typer
 from rich.console import Console
 from rich.text import Text
@@ -16,17 +19,27 @@ from tau_agent import (
     ToolExecutionStartEvent,
     ToolExecutionUpdateEvent,
 )
+from tau_coding.elapsed import format_elapsed_line
 from tau_coding.tui.state import format_tool_call_block
 
 
 class TranscriptRenderer:
     """Render assistant deltas live and tool activity to stderr."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        started_at: float | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        show_elapsed: bool = True,
+    ) -> None:
         self._assistant_started = False
         self._assistant_ended = False
         self._failed = False
         self._console = Console(stderr=True, highlight=False)
+        self._started_at = clock() if started_at is None else started_at
+        self._clock = clock
+        self._show_elapsed = show_elapsed
 
     def render(self, event: AgentEvent) -> None:
         """Render one agent event."""
@@ -75,6 +88,10 @@ class TranscriptRenderer:
 
     def finish(self) -> bool:
         """Return whether the rendered run succeeded."""
+        if not self._failed and self._show_elapsed:
+            self._console.print(
+                Text(format_elapsed_line(self._clock() - self._started_at), style="bright_black")
+            )
         return not self._failed
 
     def _ensure_assistant_newline(self, *, final: bool = False) -> None:
