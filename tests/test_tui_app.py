@@ -2140,19 +2140,25 @@ async def test_tui_app_scrolls_completion_selection_into_view() -> None:
         prompt.value = "/"
         app._completion_state = app._build_completion_state(prompt.value)
         app._refresh_completions()
-        autocomplete = app.query_one("#autocomplete", Static)
-        initial_rendered = str(autocomplete.render())
-        assert "/prompt-00" not in initial_rendered
+        visible = tui_app._visible_completion_state(
+            app._completion_state,
+            max_lines=tui_app.COMPLETION_MAX_VISIBLE_LINES,
+        )
+        assert visible.items[0].display != "/prompt-00"
 
         for _ in range(35):
             app.action_completion_next()
             await pilot.pause()
 
-        rendered = str(autocomplete.render())
+        visible = tui_app._visible_completion_state(
+            app._completion_state,
+            max_lines=tui_app.COMPLETION_MAX_VISIBLE_LINES,
+        )
         selected = app._completion_state.selected
         assert selected is not None
-        assert selected.display in rendered
-        assert "/prompt-00" not in rendered
+        assert visible.selected is not None
+        assert visible.selected.display == selected.display
+        assert visible.items[0].display != "/prompt-00"
 
 
 @pytest.mark.anyio

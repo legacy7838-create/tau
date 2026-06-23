@@ -1,5 +1,7 @@
 from pathlib import Path
 
+from rich.console import Console
+
 from tau_coding.commands import create_default_command_registry
 from tau_coding.prompt_templates import PromptTemplate
 from tau_coding.skills import Skill
@@ -40,11 +42,37 @@ def test_slash_completion_groups_commands_and_custom_prompts() -> None:
     assert state.items[0].category == "Commands"
     assert state.items[-1].display == "/example"
     assert state.items[-1].category == "Custom prompts"
-    rendered = render_completion_suggestions(state).plain
-    assert "Commands\n" in rendered
-    assert "Custom prompts\n" in rendered
+    console = Console(width=100, record=True)
+    console.print(render_completion_suggestions(state))
+    rendered = console.export_text()
+    assert "Commands" in rendered
+    assert "Custom prompts" in rendered
     assert rendered.index("Commands") < rendered.index("/compact")
     assert rendered.index("Custom prompts") < rendered.index("/example")
+
+
+def test_completion_rendering_aligns_wrapped_descriptions() -> None:
+    state = build_completion_state(
+        "/skill:r",
+        command_registry=create_default_command_registry(),
+        skills=(
+            Skill(
+                name="review",
+                path=Path("review.md"),
+                content="Review code",
+                description="Review code with a long description that wraps onto another line.",
+            ),
+        ),
+        prompt_templates=(),
+    )
+
+    console = Console(width=48, record=True)
+    console.print(render_completion_suggestions(state))
+    rendered = console.export_text()
+
+    assert "› /skill:review" in rendered
+    assert "                 another line." in rendered
+    assert not any(line.startswith("another line.") for line in rendered.splitlines())
 
 
 def test_command_completion_suggests_registered_commands() -> None:
