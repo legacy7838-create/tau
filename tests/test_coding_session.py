@@ -684,6 +684,26 @@ async def test_tree_branching_detaches_missing_root_parent_from_imported_branch(
 
 
 @pytest.mark.anyio
+async def test_load_restores_explicit_empty_leaf_branch(tmp_path: Path) -> None:
+    storage = JsonlSessionStorage(tmp_path / "session.jsonl")
+    root = MessageEntry(id="root", message=UserMessage(content="Root"))
+    await storage.append(root)
+    await storage.append(LeafEntry(entry_id="root"))
+    session = await CodingSession.load(_config(tmp_path, FakeProvider([]), storage))
+
+    result = await session.branch_to_entry("root")
+    reloaded = await CodingSession.load(_config(tmp_path, FakeProvider([]), storage))
+
+    assert result == SessionTreeBranchResult(
+        message="Branched session before root.",
+        input_prefill="Root",
+    )
+    assert session.messages == ()
+    assert reloaded.messages == ()
+    assert reloaded.state.active_leaf_id is None
+
+
+@pytest.mark.anyio
 async def test_load_restores_active_leaf_branch(tmp_path: Path) -> None:
     storage = JsonlSessionStorage(tmp_path / "session.jsonl")
     root = MessageEntry(id="root", message=UserMessage(content="Root"))

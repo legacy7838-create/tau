@@ -256,9 +256,10 @@ class CodingSession:
             entries = _detach_missing_parents(entries)
 
         linear_state = SessionState.from_entries(entries)
+        latest_leaf = _latest_leaf_entry(entries)
         state = (
-            SessionState.from_entries(entries, leaf_id=linear_state.active_leaf_id)
-            if linear_state.active_leaf_id is not None
+            SessionState.from_entries(entries, leaf_id=latest_leaf.entry_id)
+            if latest_leaf is not None
             else linear_state
         )
         tools = config.tools if config.tools is not None else create_coding_tools(cwd=config.cwd)
@@ -1508,6 +1509,13 @@ def _last_parent_id_from_state(state: SessionState) -> str | None:
         return state.active_leaf_id
     if state.entries:
         return state.entries[-1].id
+    return None
+
+
+def _latest_leaf_entry(entries: list[SessionEntry]) -> LeafEntry | None:
+    for entry in reversed(entries):
+        if isinstance(entry, LeafEntry):
+            return entry
     return None
 
 
