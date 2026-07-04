@@ -4262,6 +4262,121 @@ async def test_tui_app_toggles_thinking_tokens_from_keybinding_while_running() -
     assert notifications == []
 
 
+
+@pytest.mark.anyio
+async def test_tui_app_toggles_thinking_targeted_hide_show_hide_multiple_blocks() -> None:
+    app = TauTuiApp(FakeSession())
+
+    def transcript_text() -> str:
+        transcript = app.query_one("#transcript", TranscriptView)
+        return "\n".join(line.text for line in transcript.lines)
+
+    async with app.run_test() as pilot:
+        transcript = app.query_one("#transcript", TranscriptView)
+        app.state.add_item("user", "Hello")
+        app.state.add_item("thinking", "First thoughts 1")
+        app.state.add_item("thinking", "First thoughts 2")
+        app.state.add_item("assistant", "Final response 1")
+        app.state.add_item("thinking", "Second thoughts 1")
+        app.state.add_item("thinking", "Second thoughts 2")
+        app.state.add_item("assistant", "Final response 2")
+
+        app._refresh()
+        await pilot.pause()
+
+        assert "First thoughts" not in transcript_text()
+        assert "Second thoughts" not in transcript_text()
+        assert "Thinking… Press Ctrl+T to show thinking tokens." in transcript_text()
+
+        original_user_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "user"
+        ]
+        original_assistant_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "assistant"
+        ]
+        assert len(original_user_widgets) == 1
+        assert len(original_assistant_widgets) == 2
+
+        # 1. Toggle show thinking
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+
+        assert app.state.show_thinking is True
+        assert "First thoughts 1" in transcript_text()
+        assert "First thoughts 2" in transcript_text()
+        assert "Second thoughts 1" in transcript_text()
+        assert "Second thoughts 2" in transcript_text()
+        assert "Thinking… Press Ctrl+T to show thinking tokens." not in transcript_text()
+
+        current_user_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "user"
+        ]
+        current_assistant_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "assistant"
+        ]
+        assert current_user_widgets == original_user_widgets
+        assert current_assistant_widgets == original_assistant_widgets
+
+        # 2. Toggle hide thinking again
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+
+        assert app.state.show_thinking is False
+        assert "First thoughts" not in transcript_text()
+        assert "Second thoughts" not in transcript_text()
+        assert "Thinking… Press Ctrl+T to show thinking tokens." in transcript_text()
+
+        current_user_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "user"
+        ]
+        current_assistant_widgets = [
+            (id(w), w.item.text)
+            for w in transcript.children
+            if isinstance(w, TranscriptMessageWidget) and w.item.role == "assistant"
+        ]
+        assert current_user_widgets == original_user_widgets
+        assert current_assistant_widgets == original_assistant_widgets
+
+
+@pytest.mark.anyio
+async def test_tui_thinking_toggle_preserves_scrollback_position() -> None:
+    app = TauTuiApp(FakeSession())
+
+    async with app.run_test() as pilot:
+        transcript = app.query_one("#transcript", TranscriptView)
+        for i in range(100):
+            app.state.add_item("user", f"Message {i}")
+        app.state.add_item("thinking", "Deep thoughts")
+        app._refresh()
+        await pilot.pause()
+
+        transcript.scroll_y = 10.0
+        transcript._follow_output = False
+        await pilot.pause()
+
+        # Toggle show thinking
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+
+        assert transcript.scroll_y == 10.0
+
+        # Toggle hide thinking
+        await pilot.press("ctrl+t")
+        await pilot.pause()
+
+        assert transcript.scroll_y == 10.0
+
+
 @pytest.mark.anyio
 async def test_tui_prompt_ctrl_c_clears_text() -> None:
     app = TauTuiApp(FakeSession(messages=(UserMessage(content="User prompt"),)))

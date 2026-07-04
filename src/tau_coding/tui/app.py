@@ -2467,7 +2467,17 @@ class TauTuiApp(App[None]):
     def action_toggle_thinking(self) -> None:
         """Toggle thinking-token display in the transcript."""
         self.state.toggle_thinking()
-        self._refresh()
+        if not self.screen_stack:
+            return
+        try:
+            transcript = self.query_one("#transcript", TranscriptView)
+        except NoMatches:
+            self._refresh()
+            return
+        transcript.update_thinking_visibility(
+            self.state,
+            theme=self.tui_settings.resolved_theme,
+        )
 
     def _handle_session_picker_result(self, session_id: str | None) -> None:
         if session_id is None:

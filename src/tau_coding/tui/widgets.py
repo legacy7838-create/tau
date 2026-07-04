@@ -225,8 +225,12 @@ class TranscriptMessageWidget(Horizontal):
         *,
         theme: TuiTheme,
         show_tool_results: bool,
+        item_index: int = -1,
+        placeholder_item_range: tuple[int, int] | None = None,
     ) -> None:
         self.item = item
+        self._item_index = item_index
+        self._placeholder_item_range = placeholder_item_range
         self.selection_text = transcript_item_selection_text(
             item,
             show_tool_results=show_tool_results,
@@ -412,6 +416,97 @@ class TranscriptView(VerticalScroll):
         self._render_theme = theme
         self._redraw(scroll_end=self._should_follow_output)
 
+    def update_thinking_visibility(
+        self,
+        state: TuiState,
+        *,
+        theme: TuiTheme = TAU_DARK_THEME,
+    ) -> None:
+        """Toggle thinking-token visibility without rebuilding the whole transcript."""
+        self._render_state = state
+        self._render_theme = theme
+        was_at_end = self.is_vertical_scroll_end
+        saved_scroll_y = self.scroll_y
+
+        if not state.show_thinking:
+            self._collapse_thinking_widgets(state, theme=theme)
+        else:
+            self._expand_thinking_placeholders(state, theme=theme)
+
+        self.refresh(layout=True)
+        if was_at_end:
+            self._request_follow_scroll(force=True)
+        else:
+            self.scroll_to(y=saved_scroll_y, animate=False, immediate=True)
+
+    def _collapse_thinking_widgets(self, state: TuiState, *, theme: TuiTheme) -> None:
+        """DOM surgery: replace thinking widgets with placeholders."""
+        thinking_widgets = [
+            c for c in self.children
+            if isinstance(c, TranscriptMessageWidget)
+            and c.item.role == "thinking"
+            and c._placeholder_item_range is None
+        ]
+        if not thinking_widgets:
+            return
+
+        groups: list[list[TranscriptMessageWidget]] = []
+        current_group = [thinking_widgets[0]]
+        for w in thinking_widgets[1:]:
+            if w._item_index == current_group[-1]._item_index + 1:
+                current_group.append(w)
+            else:
+                groups.append(current_group)
+                current_group = [w]
+        groups.append(current_group)
+
+        for group in reversed(groups):
+            first = group[0]
+            last = group[-1]
+            start_idx = first._item_index
+            end_idx = last._item_index + 1
+
+            placeholder = TranscriptMessageWidget(
+                ChatItem(
+                    role="thinking",
+                    text="Thinking… Press Ctrl+T to show thinking tokens.",
+                ),
+                theme=theme,
+                show_tool_results=state.show_tool_results,
+                item_index=start_idx,
+                placeholder_item_range=(start_idx, end_idx),
+            )
+            self.mount(placeholder, before=first)
+            for widget in group:
+                widget.remove()
+
+    def _expand_thinking_placeholders(self, state: TuiState, *, theme: TuiTheme) -> None:
+        """DOM surgery: replace placeholders with actual thinking widgets."""
+        placeholders = [
+            c for c in self.children
+            if isinstance(c, TranscriptMessageWidget)
+            and c._placeholder_item_range is not None
+        ]
+        if not placeholders:
+            return
+
+        for placeholder in reversed(placeholders):
+            start_idx, end_idx = placeholder._placeholder_item_range
+            thinking_items = [
+                (i, state.items[i])
+                for i in range(start_idx, end_idx)
+                if state.items[i].role == "thinking"
+            ]
+            for i, item in reversed(thinking_items):
+                new_widget = TranscriptMessageWidget(
+                    item,
+                    theme=theme,
+                    show_tool_results=state.show_tool_results or item.always_show_tool_result,
+                    item_index=i,
+                )
+                self.mount(new_widget, before=placeholder)
+            placeholder.remove()
+
     def on_resize(self, event: Resize) -> None:
         """Re-render transcript entries when the terminal width changes."""
         del event
@@ -441,27 +536,46 @@ class TranscriptView(VerticalScroll):
         self._active_thinking_widget = None
         self._hidden_thinking_placeholder_visible = False
         hidden_thinking_placeholder = False
-        for item in state.items:
+        group_start = -1
+        for i, item in enumerate(state.items):
             if item.role == "thinking" and not state.show_thinking:
                 if not hidden_thinking_placeholder:
-                    self.mount(
-                        TranscriptMessageWidget(
-                            ChatItem(
-                                role="thinking",
-                                text="Thinking… Press Ctrl+T to show thinking tokens.",
-                            ),
-                            theme=theme,
-                            show_tool_results=state.show_tool_results,
-                        )
-                    )
+                    group_start = i
                     hidden_thinking_placeholder = True
                 continue
-            hidden_thinking_placeholder = False
+            if hidden_thinking_placeholder:
+                self.mount(
+                    TranscriptMessageWidget(
+                        ChatItem(
+                            role="thinking",
+                            text="Thinking… Press Ctrl+T to show thinking tokens.",
+                        ),
+                        theme=theme,
+                        show_tool_results=state.show_tool_results,
+                        item_index=group_start,
+                        placeholder_item_range=(group_start, i),
+                    )
+                )
+                hidden_thinking_placeholder = False
             self.mount(
                 TranscriptMessageWidget(
                     item,
                     theme=theme,
                     show_tool_results=state.show_tool_results or item.always_show_tool_result,
+                    item_index=i,
+                )
+            )
+        if hidden_thinking_placeholder:
+            self.mount(
+                TranscriptMessageWidget(
+                    ChatItem(
+                        role="thinking",
+                        text="Thinking… Press Ctrl+T to show thinking tokens.",
+                    ),
+                    theme=theme,
+                    show_tool_results=state.show_tool_results,
+                    item_index=group_start,
+                    placeholder_item_range=(group_start, len(state.items)),
                 )
             )
         if state.assistant_buffer:
